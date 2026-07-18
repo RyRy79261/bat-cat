@@ -31,18 +31,19 @@ PERCH = 5
 TWO_PI = 2.0 * math.pi
 
 HOP_MS = 450
-HOP_HEIGHT = 10.0
+HOP_HEIGHT = 20.0
 JUMP_MS = 520
-JUMP_HEIGHT = 16.0
+JUMP_HEIGHT = 40.0
 FRIGHT_COOLDOWN_MS = 800
 SLEEP_AFTER_MS = 20000
 BALL_STILL_SPEED = 5.0
 BALL_WAKE_SPEED = 15.0
 MIN_FLIP_SPEED = 25.0
 JUMP_MIN_SPEED = 45.0
-PERCH_ON_DIST = 10.0
+PERCH_ON_DIST = 12.0
 PERCH_OFF_SPEED = 40.0
 PERCH_LIE_AFTER_MS = 6000
+MIN_SEPARATION = 52.0  # arc px between cat centres — cats never stack
 
 # Tilt physics — MUST match spmono.engine.physics.RimBall's defaults so the
 # cats fall under the same gravity as the ball. (Duplicated, not imported:
@@ -58,14 +59,39 @@ def arc_delta(from_phi, to_phi):
     return (to_phi - from_phi + math.pi) % TWO_PI - math.pi
 
 
+def separate(cats):
+    """Keep cats at least MIN_SEPARATION arc px apart so none hides behind
+    another. Call once per tick after every cat has updated. Airborne or
+    perched cats hold their spot; grounded ones get nudged."""
+    for i in range(len(cats)):
+        for j in range(i + 1, len(cats)):
+            a, b = cats[i], cats[j]
+            gap = arc_delta(a.phi, b.phi) * a.track_r  # signed arc a -> b
+            overlap = MIN_SEPARATION - abs(gap)
+            if overlap <= 0.0:
+                continue
+            sign = 1.0 if gap >= 0.0 else -1.0  # push b to +sign, a to -sign
+            a_free = a.state in (IDLE, CHASE, SLEEP)
+            b_free = b.state in (IDLE, CHASE, SLEEP)
+            if a_free and b_free:
+                a.phi -= sign * (overlap / 2) / a.track_r
+                b.phi += sign * (overlap / 2) / b.track_r
+            elif a_free:
+                a.phi -= sign * overlap / a.track_r
+            elif b_free:
+                b.phi += sign * overlap / b.track_r
+            a.phi %= TWO_PI
+            b.phi %= TWO_PI
+
+
 class Cat:
     def __init__(
         self,
         phi,
         track_radius=95.0,
         accel=120.0,
-        standoff=20.0,
-        fright_dist=48.0,
+        standoff=56.0,
+        fright_dist=90.0,
     ):
         self.phi = phi % TWO_PI
         self.track_r = track_radius
