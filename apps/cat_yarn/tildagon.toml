@@ -1,0 +1,15 @@
+[app]
+name = "Cat & Yarn"
+category = "Apps"
+
+[publish]
+# Mono-internal: target repo for the store-publish workflow (stripped from the
+# published copy). The repo must exist; PUBLISH_TOKEN secret needs write on it.
+repo = "RyRy79261/spaceagon-cat-yarn"
+
+[metadata]
+author = "RyRy79261"
+license = "MIT"
+url = "https://github.com/RyRy79261/spaceagon-mono"
+description = "Ambient toy: cats chase a yarn ball that rolls with tilt. The rim shows battery."
+version = "1.00.00"

@@ -1,0 +1,105 @@
+name: Publish apps to the Tildagon store
+
+# Publishes apps to their standalone GitHub repos (the store requires one repo
+# per app, discovered via the `tildagon-app` topic + a GitHub Release).
+#
+# First publish (manual): Actions -> "Publish apps" -> Run workflow, app name.
+# Updates (automatic):    merge to main with a bumped version in the app's
+#                         tildagon.toml -> new release in its repo. Apps whose
+#                         target repo doesn't exist yet are never auto-published.
+#
+# One-time setup:
+#   1. Create the empty target repo (default: <owner>/spaceagon-<app-dashes>,
+#      or set [publish] repo = "owner/name" in the app's tildagon.toml).
+#   2. Add a PUBLISH_TOKEN secret: fine-grained PAT with Contents: read/write
+#      on the target repos (plus Administration: write if you want the topic
+#      step to work — otherwise add the `tildagon-app` topic by hand once).
+#   3. The store rescans every ~10-15 min; failures show at
+#      https://apps.badge.emfcamp.org/errors/
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "App folder under apps/ (e.g. cat_yarn)"
+        required: true
+      repo:
+        description: "Target repo override (owner/name)"
+        required: false
+  push:
+    branches: [main]
+    paths: ["apps/**", "libs/**"]
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_APP: ${{ inputs.app }}
+          INPUT_REPO: ${{ inputs.repo }}
+          OWNER: ${{ github.repository_owner }}
+        run: python tools/publish_plan.py
+
+  publish:
+    needs: plan
+    if: needs.plan.outputs.matrix != '[]' && needs.plan.outputs.matrix != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse to re-release an existing version
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+        run: |
+          if gh release view "v${{ matrix.version }}" --repo "${{ matrix.repo }}" >/dev/null 2>&1; then
+            echo "::error::v${{ matrix.version }} already released in ${{ matrix.repo }} — bump version in apps/${{ matrix.app }}/tildagon.toml (keep components fixed-width, e.g. 1.00.01)"
+            exit 1
+          fi
+
+      - name: Build flattened store tree
+        run: python tools/publish_prep.py "${{ matrix.app }}" --repo "${{ matrix.repo }}"
+
+      - name: Push to app repo
+        env:
+          TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+        run: |
+          cd "dist/${{ matrix.app }}"
+          git init -b main
+          git config user.name "spaceagon-mono publisher"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Publish ${{ matrix.app }} v${{ matrix.version }} from spaceagon-mono"
+          git push --force "https://x-access-token:${TOKEN}@github.com/${{ matrix.repo }}.git" main
+
+      - name: Ensure tildagon-app topic (needs Administration write; safe to skip)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+        run: |
+          existing=$(gh api "repos/${{ matrix.repo }}/topics" -q '.names[]' || true)
+          args=""
+          for topic in $(printf '%s\ntildagon-app\n' "$existing" | sort -u); do
+            args="$args -f names[]=$topic"
+          done
+          gh api -X PUT "repos/${{ matrix.repo }}/topics" $args
+
+      - name: Create release (what the store actually ingests)
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+        run: |
+          gh release create "v${{ matrix.version }}" \
+            --repo "${{ matrix.repo }}" \
+            --target main \
+            --title "v${{ matrix.version }}" \
+            --notes "Published from ${{ github.repository }}@${{ github.sha }}"
+          echo "Released ${{ matrix.repo }} v${{ matrix.version }} — the store lists it within ~15 min (errors: https://apps.badge.emfcamp.org/errors/)"

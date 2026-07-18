@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run pytest -q
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Sanity-check every tildagon.toml
+        run: uv run python tools/check_manifests.py
+
+  sim-smoke:
+    # Boots each app headlessly in the official simulator and captures a frame.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [cat_yarn]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: emfcamp/badge-2024-software
+          ref: v2.1.1
+          path: .cache/badge-2024-software
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install -r .cache/badge-2024-software/sim/requirements.txt pillow
+      - name: Generate sprite assets
+        run: python tools/gen_cat_sprites.py
+      - name: Boot app in simulator
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+          TILDAGON_FW: .cache/badge-2024-software
+        run: python tools/sim.py ${{ matrix.app }} --screenshot
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sim-screenshot-${{ matrix.app }}
+          # the sim writes its screenshot as flow3r.png (flow3r badge heritage)
+          path: .cache/badge-2024-software/sim/flow3r.png
+          if-no-files-found: ignore

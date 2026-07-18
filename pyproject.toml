@@ -1,0 +1,28 @@
+[project]
+name = "spaceagon-mono"
+version = "0.1.0"
+description = "Monorepo template + dev kit for EMF Spaceagon (Tildagon) badge apps"
+requires-python = ">=3.10"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15",
+    "pytest>=8",
+    "pillow>=10",
+    "mpremote>=1.28",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"  # badge is MicroPython 1.28 (~py3.10 syntax, NO match statements)
+exclude = ["apps/*/spmono", ".cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "B905",  # MicroPython's zip() has no strict= parameter
+    "E402",  # app modules locate their install root before imports
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

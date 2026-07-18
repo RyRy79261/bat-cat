@@ -1,0 +1,7 @@
+{
+  "name": "Cat & Yarn",
+  "path": "apps.cat_yarn.app",
+  "callable": "CatYarnApp",
+  "category": "unknown",
+  "hidden": false
+}
