@@ -7,10 +7,13 @@ from cat_yarn_cats import (
     IDLE,
     JUMP,
     JUMP_MS,
+    MIN_SEPARATION,
     PERCH,
     PERCH_LIE_AFTER_MS,
     SLEEP,
     Cat,
+    arc_delta,
+    separate,
 )
 
 R = 95.0  # track radius used throughout — arc px = angle * R
@@ -145,6 +148,42 @@ def test_no_perch_without_permission():
     ball = Ball()
     settle(cat, ball, steps=60, can_perch=False)
     assert cat.state != PERCH
+
+
+def test_separate_pushes_stacked_cats_apart():
+    a = Cat(math.pi / 2, track_radius=R)
+    b = Cat(math.pi / 2 + arc(4.0), track_radius=R)  # nearly on top of a
+    separate([a, b])
+    assert abs(arc_delta(a.phi, b.phi)) * R >= MIN_SEPARATION - 1e-6
+
+
+def test_separate_leaves_distant_cats_alone():
+    a = Cat(0.0, track_radius=R)
+    b = Cat(math.pi, track_radius=R)
+    pa, pb = a.phi, b.phi
+    separate([a, b])
+    assert (a.phi, b.phi) == (pa, pb)
+
+
+def test_separate_moves_only_the_grounded_cat():
+    a = Cat(math.pi / 2, track_radius=R)
+    a.state = PERCH  # riding the ball — must hold its spot
+    b = Cat(math.pi / 2 + arc(4.0), track_radius=R)
+    pa = a.phi
+    separate([a, b])
+    assert a.phi == pa
+    assert abs(arc_delta(a.phi, b.phi)) * R >= MIN_SEPARATION - 1e-6
+
+
+def test_chasing_cats_never_stack():
+    cats = [make_cat(120.0), make_cat(124.0)]  # start bunched, far from ball
+    ball = Ball()
+    for _ in range(200):
+        for c in cats:
+            c.update(50, ball)
+        separate(cats)
+        gap = abs(arc_delta(cats[0].phi, cats[1].phi)) * R
+        assert gap >= MIN_SEPARATION - 1e-6
 
 
 def test_knocked_off_perch_when_ball_rolls():

@@ -33,7 +33,7 @@ def _find_root():
 
 _APP_ROOT = _find_root()
 
-from .cats import CHASE, FRIGHT, JUMP, PERCH, Cat
+from .cats import CHASE, FRIGHT, JUMP, PERCH, Cat, separate
 from .spmono import flags, theme
 from .spmono.engine.physics import RimBall
 from .spmono.engine.sprite import Sprite
@@ -61,13 +61,14 @@ RING_R = 114
 RING_W = 5
 FLOOR_R = RING_R - RING_W / 2  # inner edge of the floor ring
 
-# All art is authored at 1x and drawn at 2x (one art pixel = two screen px).
-BALL_R = 13  # yarn ball's visual radius on screen
-YARN_SIZE = 32  # 16x16 art
-CAT_SIZE = 40  # 20x20 art
-PERCH_SIZE = 48  # 24x24 art
-CAT_FEET = 16  # feet baseline sits this far below the sprite centre
-PERCH_OFF = (-1, -8)  # composite offset aligning its ball with the real one
+# Art is authored at 1x; the yarn (14px ball) draws at ~4.25x for 25% of the
+# 240px screen, cats (12px sitting) at 4x for 20%.
+BALL_R = 30  # yarn ball's visual radius on screen
+YARN_SIZE = 68  # 16x16 art at 4.25x
+CAT_SIZE = 80  # 20x20 art at 4x
+PERCH_SIZE = 102  # 24x24 art at 4.25x
+CAT_FEET = 32  # feet baseline sits this far below the sprite centre
+PERCH_OFF = (-2, -17)  # composite offset aligning its ball with the real one
 
 BALL_TRACK_R = FLOOR_R - BALL_R
 CAT_TRACK_R = FLOOR_R - CAT_FEET
@@ -172,6 +173,7 @@ class CatYarnApp(BaseApp):
             sprite.update(delta)
             if cat.state in (CHASE, FRIGHT, JUMP):
                 active = True
+        separate(self.cats)
 
         if active or self.battery.charging:
             self._idle_acc = 0
@@ -249,9 +251,9 @@ class CatYarnApp(BaseApp):
         if cat.show_alert():
             txt = th["text"]
             ctx.rgb(txt[0], txt[1], txt[2])
-            top = hop - CAT_SIZE / 2 - 6
-            ctx.rectangle(-1, top, 2, 6).fill()
-            ctx.rectangle(-1, top + 8, 2, 2).fill()
+            top = hop - CAT_SIZE / 2 - 8
+            ctx.rectangle(-2, top, 4, 12).fill()
+            ctx.rectangle(-2, top + 16, 4, 4).fill()
         ctx.restore()
 
 
