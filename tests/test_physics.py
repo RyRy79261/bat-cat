@@ -1,6 +1,7 @@
 import math
 
-from spmono.engine.physics import TiltBall
+import pytest
+from spmono.engine.physics import RimBall, TiltBall
 
 
 def make_ball():
@@ -53,4 +54,42 @@ def test_roll_angle_advances_with_motion():
     ball = make_ball()
     for _ in range(10):
         ball.step(5.0, 0.0, 0.05)
+    assert ball.theta != 0.0
+
+
+# -- RimBall: the rim-floor track --------------------------------------------
+
+
+def make_rim_ball():
+    return RimBall(radius=13, track_radius=98.5)
+
+
+def test_rim_ball_stays_on_track():
+    ball = make_rim_ball()
+    for _ in range(200):
+        ball.step(9.8, 3.0, 0.05)
+        assert math.hypot(ball.x, ball.y) == pytest.approx(ball.track_r)
+
+
+def test_rim_ball_slides_toward_gravity_low_point():
+    ball = make_rim_ball()  # starts at the bottom (phi = pi/2)
+    # Gravity to screen-right: the low point is phi = 0.
+    for _ in range(400):
+        ball.step(9.8, 0.0, 0.05)
+    assert abs(math.sin(ball.phi)) < 0.5  # settled near the right side
+    assert ball.x > 0
+
+
+def test_rim_ball_deadzone_keeps_it_still():
+    ball = make_rim_ball()
+    for _ in range(20):
+        ball.step(0.5, 0.5, 0.05)  # magnitude ~0.7 < 0.8 deadzone
+    assert ball.v == 0.0
+    assert ball.phi == math.pi / 2
+
+
+def test_rim_ball_rolls_as_it_moves():
+    ball = make_rim_ball()
+    for _ in range(10):
+        ball.step(9.8, 0.0, 0.05)
     assert ball.theta != 0.0

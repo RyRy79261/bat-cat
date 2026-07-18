@@ -1,142 +1,169 @@
 #!/usr/bin/env python3
-"""Generate the bat-cat pixel-art sprite frames (24x24 PNGs, cat 19px tall
-incl. tail). Deterministic — rerun any time; commit the output.
+"""Build the bat-cat sprite frames from the source sheet + generate the yarn.
 
-Usage: python tools/gen_cat_sprites.py [--skin default]
+Cat frames are sliced from tools/assets/cat_sheet.png (32x32 cells, cat facing
+right), re-anchored onto 20x20 canvases with a common baseline so animation
+frames don't wobble. The yarn ball is generated from a fixed 16x16 silhouette
+with 16-bit-style shading. Perch frames (cat sitting/lying on the ball) are
+composited from both. Deterministic — rerun any time; commit the output.
+
+Everything is authored at 1x and drawn by the app at 2x (nearest-neighbour),
+so one art pixel = two screen pixels across all sprites.
+
+Usage: python tools/gen_cat_sprites.py
 """
 
-import argparse
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-SIZE = 24
+ROOT = Path(__file__).resolve().parent.parent
+SHEET = ROOT / "tools" / "assets" / "cat_sheet.png"
+OUT = ROOT / "apps" / "cat_yarn" / "assets" / "cat" / "default"
 
-SKINS = {
-    "default": {
-        "body": (150, 156, 168, 255),
-        "dark": (72, 76, 86, 255),
-        "belly": (208, 212, 220, 255),
-        "pink": (232, 130, 150, 255),
-        "eye": (46, 200, 120, 255),
-    },
-    "void": {
-        "body": (28, 28, 34, 255),
-        "dark": (10, 10, 14, 255),
-        "belly": (60, 60, 70, 255),
-        "pink": (200, 90, 120, 255),
-        "eye": (250, 210, 60, 255),
-    },
+CELL = 32
+CAT_CANVAS = 20
+CAT_BASELINE = 18  # feet rest on this row in every re-anchored frame
+
+# (row, col) cells in the sheet for each output frame.
+CAT_FRAMES = {
+    "idle0.png": (0, 0),
+    "idle1.png": (0, 1),
+    "idle2.png": (0, 2),
+    "idle3.png": (0, 3),
+    "run0.png": (9, 0),
+    "run1.png": (9, 1),
+    "run2.png": (9, 2),
+    "run3.png": (9, 3),
+    "run4.png": (9, 4),
+    "run5.png": (9, 5),
+    "run6.png": (9, 6),
+    "run7.png": (9, 7),
+    "sleep0.png": (6, 0),
+    "sleep1.png": (6, 1),
+    "sleep2.png": (6, 2),
+    "sleep3.png": (6, 3),
+    "fright0.png": (8, 1),  # rearing up, paws out
+    "fright1.png": (5, 5),  # landing crouch
+    "jump0.png": (8, 2),  # leaping, rising
+    "jump1.png": (8, 3),  # leaping, coming down
 }
 
+# The yarn ball silhouette (16x16, X = ball).
+YARN_MASK = """
+OOOOOOOOOOOOOOOO
+OOOOOOOXXXOOOOOO
+OOOOOOXXXXXOOOOO
+OOOOOXXXXXXXXOOO
+OOOOXXXXXXXXXXOO
+OOOXXXXXXXXXXXXO
+OOXXXXXXXXXXXXXX
+OOXXXXXXXXXXXXXX
+OOXXXXXXXXXXXXXX
+OOXXXXXXXXXXXXXX
+OOOXXXXXXXXXXXXO
+OOOOXXXXXXXXXXOO
+OOOOOXXXXXXXXOOO
+OOOOOOXXXXXOOOOO
+OOOOOOOXXXOOOOOO
+OOOOOOOOOOOOOOOO
+"""
 
-def _canvas():
-    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    return img, ImageDraw.Draw(img)
+YARN = {
+    "outline": (74, 32, 42, 255),
+    "strand": (139, 44, 60, 255),
+    "dark": (176, 58, 76, 255),
+    "base": (214, 84, 100, 255),
+    "light": (238, 140, 150, 255),
+    "shine": (250, 194, 198, 255),
+}
+
+# Perch composite layout (24x24 canvas): where the yarn ball sits and how deep
+# the cat sinks into its top edge.
+PERCH_CANVAS = 24
+PERCH_YARN_POS = (4, 8)  # yarn 16x16 pasted here -> ball centre ~(12, 16)
+PERCH_SIT_FEET = 12  # sitting cat's baseline row (ball top edge is y=9)
+PERCH_LIE_FEET = 11  # lying cat drapes across the ball's top
 
 
-def _ears(d, c, tips, back=False):
-    # tips: [(x, y), (x, y)] ear tip pixels; ears drawn as small triangles
-    for tx, ty in tips:
-        d.polygon([(tx - 2, ty + 3), (tx + 1, ty + 3), (tx, ty)], fill=c["dark"])
+def slice_cat(sheet, row, col):
+    cell = sheet.crop((col * CELL, row * CELL, (col + 1) * CELL, (row + 1) * CELL))
+    bbox = cell.getbbox()
+    art = cell.crop(bbox)
+    out = Image.new("RGBA", (CAT_CANVAS, CAT_CANVAS), (0, 0, 0, 0))
+    x = (CAT_CANVAS - art.width) // 2
+    y = CAT_BASELINE - art.height
+    out.paste(art, (x, y), art)
+    return out
 
 
-def idle(c, tail_up):
-    img, d = _canvas()
-    # 19px tall budget: y=5..23 (head top 6, ground 23)
-    d.ellipse((6, 12, 18, 23), fill=c["body"], outline=c["dark"])  # seated body
-    d.ellipse((11, 6, 21, 15), fill=c["body"], outline=c["dark"])  # head
-    _ears(d, c, [(13, 4), (19, 4)])
-    d.point((18, 10), fill=c["eye"])
-    d.point((21, 11), fill=c["pink"])  # nose
-    d.line((15, 17, 15, 22), fill=c["dark"])  # front leg hint
-    if tail_up:
-        d.line((6, 18, 3, 12), fill=c["dark"], width=2)
-        d.point((3, 11), fill=c["body"])
-    else:
-        d.line((6, 21, 1, 22), fill=c["dark"], width=2)
+def yarn_ball():
+    rows = [r for r in YARN_MASK.split() if r]
+    size = len(rows[0])
+    mask = [[ch == "X" for ch in row] for row in rows]
+
+    def inside(x, y):
+        return 0 <= x < size and 0 <= y < size and mask[y][x]
+
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    px = img.load()
+    cx, cy = 8.5, 8.0
+    for y in range(size):
+        for x in range(size):
+            if not mask[y][x]:
+                continue
+            edge = not all(inside(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            if edge:
+                px[x, y] = YARN["outline"]
+                continue
+            # Light from the upper right, shade to the lower left.
+            t = (x - cx) * 0.55 - (y - cy) * 0.83
+            if t > 3.2:
+                px[x, y] = YARN["light"]
+            elif t < -2.2:
+                px[x, y] = YARN["dark"]
+            else:
+                px[x, y] = YARN["base"]
+    d = ImageDraw.Draw(img)
+    # Wrapped strands: curved runs of darker pixels so the ball reads as wound
+    # yarn and its rotation is visible when the app spins the sprite.
+    d.line([(3, 9), (4, 6), (6, 4), (9, 3), (12, 4)], fill=YARN["strand"])
+    d.line([(4, 12), (7, 13), (10, 13), (13, 11)], fill=YARN["strand"])
+    d.line([(10, 3), (12, 6), (13, 9), (12, 12)], fill=YARN["strand"])
+    d.point((11, 4), fill=YARN["shine"])
+    d.point((12, 5), fill=YARN["shine"])
+    # Loose thread trailing off the lower right.
+    d.point((14, 12), fill=YARN["outline"])
+    d.point((15, 13), fill=YARN["strand"])
+    d.point((15, 14), fill=YARN["strand"])
     return img
 
 
-def run(c, pose):
-    img, d = _canvas()
-    d.ellipse((3, 11, 18, 19), fill=c["body"], outline=c["dark"])  # stretched body
-    d.ellipse((13, 5, 22, 14), fill=c["body"], outline=c["dark"])  # head
-    _ears(d, c, [(15, 3), (20, 3)])
-    d.point((19, 9), fill=c["eye"])
-    d.point((22, 10), fill=c["pink"])
-    d.line((3, 12, 0, 8), fill=c["dark"], width=1)  # tail streaming behind
-    if pose == 0:  # stretch: legs extended fore and aft
-        d.line((16, 18, 21, 22), fill=c["dark"], width=2)
-        d.line((5, 18, 1, 22), fill=c["dark"], width=2)
-    elif pose == 1:  # gather: legs tucked under
-        d.line((14, 18, 12, 22), fill=c["dark"], width=2)
-        d.line((8, 18, 9, 22), fill=c["dark"], width=2)
-    else:  # mid-stride
-        d.line((15, 18, 18, 22), fill=c["dark"], width=2)
-        d.line((6, 18, 4, 22), fill=c["dark"], width=2)
+def perch(cat_frame, yarn, feet_y):
+    img = Image.new("RGBA", (PERCH_CANVAS, PERCH_CANVAS), (0, 0, 0, 0))
+    x = (PERCH_CANVAS - CAT_CANVAS) // 2
+    img.paste(cat_frame, (x, feet_y - CAT_BASELINE), cat_frame)
+    img.paste(yarn, PERCH_YARN_POS, yarn)  # ball in front occludes the cat's feet
     return img
-
-
-def fright_air(c):
-    img, d = _canvas()
-    d.ellipse((1, 5, 7, 11), fill=c["body"], outline=c["dark"])  # puffed tail (attached)
-    d.ellipse((5, 8, 17, 16), fill=c["body"], outline=c["dark"])  # arched body
-    d.ellipse((12, 3, 21, 11), fill=c["body"], outline=c["dark"])  # head up
-    _ears(d, c, [(14, 1), (19, 1)])
-    d.rectangle((17, 6, 18, 7), fill=c["eye"])  # wide eye
-    d.point((21, 8), fill=c["pink"])
-    for x in (6, 9, 13, 16):  # splayed legs
-        d.line((x, 15, x - 1, 20), fill=c["dark"], width=1)
-    return img
-
-
-def fright_land(c):
-    img, d = _canvas()
-    d.ellipse((4, 15, 19, 23), fill=c["body"], outline=c["dark"])  # flat crouch
-    d.ellipse((13, 10, 22, 18), fill=c["body"], outline=c["dark"])  # head low
-    _ears(d, c, [(15, 8), (20, 8)])
-    d.point((19, 13), fill=c["eye"])
-    d.point((22, 14), fill=c["pink"])
-    d.line((4, 17, 1, 13), fill=c["dark"], width=2)  # tail still up
-    return img
-
-
-def sleep(c):
-    img, d = _canvas()
-    d.ellipse((5, 10, 20, 23), fill=c["body"], outline=c["dark"])  # curled loaf
-    _ears(d, c, [(15, 8), (19, 8)])  # ear nubs so the loaf reads as cat
-    d.ellipse((7, 13, 14, 20), fill=c["belly"])  # curl highlight
-    d.line((15, 15, 17, 15), fill=c["dark"])  # closed eye
-    d.arc((3, 14, 12, 23), 90, 250, fill=c["dark"], width=2)  # wrapped tail
-    return img
-
-
-def build(skin):
-    c = SKINS[skin]
-    return {
-        "idle0.png": idle(c, False),
-        "idle1.png": idle(c, True),
-        "run0.png": run(c, 0),
-        "run1.png": run(c, 1),
-        "run2.png": run(c, 2),
-        "fright0.png": fright_air(c),
-        "fright1.png": fright_land(c),
-        "sleep0.png": sleep(c),
-    }
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--skin", default="default", choices=sorted(SKINS))
-    args = parser.parse_args()
-    out = (
-        Path(__file__).resolve().parent.parent / "apps" / "cat_yarn" / "assets" / "cat" / args.skin
-    )
-    out.mkdir(parents=True, exist_ok=True)
-    for name, img in build(args.skin).items():
-        img.save(out / name, optimize=True)
-        print("wrote", out / name)
+    sheet = Image.open(SHEET).convert("RGBA")
+    OUT.mkdir(parents=True, exist_ok=True)
+    for old in OUT.glob("*.png"):
+        old.unlink()
+
+    frames = {name: slice_cat(sheet, row, col) for name, (row, col) in CAT_FRAMES.items()}
+    yarn = yarn_ball()
+    frames["yarn.png"] = yarn
+    frames["perch_sit0.png"] = perch(frames["idle0.png"], yarn, PERCH_SIT_FEET)
+    frames["perch_sit1.png"] = perch(frames["idle1.png"], yarn, PERCH_SIT_FEET)
+    frames["perch_lie0.png"] = perch(frames["sleep0.png"], yarn, PERCH_LIE_FEET)
+    frames["perch_lie1.png"] = perch(frames["sleep1.png"], yarn, PERCH_LIE_FEET)
+
+    for name, img in sorted(frames.items()):
+        img.save(OUT / name, optimize=True)
+        print("wrote", OUT / name)
 
 
 if __name__ == "__main__":

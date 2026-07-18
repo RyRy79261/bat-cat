@@ -1,9 +1,12 @@
 """bat-cat — ambient toy for the EMF Spaceagon/Tildagon badge.
 
-A ball of yarn rolls with real gravity (accelerometer); cats chase it and
-startle-jump when it reverses past them. The screen's rim is the floor: a thin
-ring color-coded by battery level. Leave it running; put the app's menu name in
-/autoexec.bat to boot straight into it.
+The screen's rim is the floor: a thin ring color-coded by battery level. A
+ball of yarn and the cats that chase it live ON that floor — beads on the rim
+circle, sliding around it under real gravity (accelerometer) and drawn
+feet-outward, so nothing ever leaves the floor or hangs upside down. Cats leap
+over the ball when it rolls at them, startle when it reverses past them, and
+sit (then lie) on top of it when they catch it still. Leave it running; put
+the app's menu name in /autoexec.bat to boot straight into it.
 """
 
 import math
@@ -30,9 +33,9 @@ def _find_root():
 
 _APP_ROOT = _find_root()
 
-from .cats import Cat
+from .cats import CHASE, FRIGHT, JUMP, PERCH, Cat
 from .spmono import flags, theme
-from .spmono.engine.physics import TiltBall
+from .spmono.engine.physics import RimBall
 from .spmono.engine.sprite import Sprite
 from .spmono.sensors.battery import BatteryMonitor
 from .spmono.ui.baseapp import BaseApp
@@ -51,28 +54,38 @@ except ImportError:
     eventbus = None
 
 APP = "catyarn"
+HALF_PI = math.pi / 2
 
 SCREEN_R = 120
 RING_R = 114
 RING_W = 5
-BALL_R = 12  # 24 px diameter = 10% of screen height
-CAT_SIZE = 24  # sprite canvas; cat art is 19 px tall incl. tail (8%)
-PLAY_R = RING_R - RING_W / 2 - BALL_R  # ball-centre boundary
-CAT_PLAY_R = RING_R - RING_W / 2 - CAT_SIZE / 2
+FLOOR_R = RING_R - RING_W / 2  # inner edge of the floor ring
+
+# All art is authored at 1x and drawn at 2x (one art pixel = two screen px).
+BALL_R = 13  # yarn ball's visual radius on screen
+YARN_SIZE = 32  # 16x16 art
+CAT_SIZE = 40  # 20x20 art
+PERCH_SIZE = 48  # 24x24 art
+CAT_FEET = 16  # feet baseline sits this far below the sprite centre
+PERCH_OFF = (-1, -8)  # composite offset aligning its ball with the real one
+
+BALL_TRACK_R = FLOOR_R - BALL_R
+CAT_TRACK_R = FLOOR_R - CAT_FEET
 
 IDLE_REDRAW_MS = 500
 
 _FRAMES = {
-    "idle": [("cat/default/idle0.png", 500), ("cat/default/idle1.png", 500)],
-    "run": [
-        ("cat/default/run0.png", 130),
-        ("cat/default/run1.png", 130),
-        ("cat/default/run2.png", 130),
-    ],
+    "idle": [(f"cat/default/idle{i}.png", 400) for i in range(4)],
+    "run": [(f"cat/default/run{i}.png", 80) for i in range(8)],
+    "sleep": [(f"cat/default/sleep{i}.png", 700) for i in range(4)],
     "fright_up": [("cat/default/fright0.png", 1000)],
     "fright_down": [("cat/default/fright1.png", 1000)],
-    "sleep": [("cat/default/sleep0.png", 1000)],
+    "jump_up": [("cat/default/jump0.png", 1000)],
+    "jump_down": [("cat/default/jump1.png", 1000)],
+    "perch_sit": [("cat/default/perch_sit0.png", 600), ("cat/default/perch_sit1.png", 600)],
+    "perch_lie": [("cat/default/perch_lie0.png", 900), ("cat/default/perch_lie1.png", 900)],
 }
+_YARN = "cat/default/yarn.png"
 
 
 def _abs_frames(root):
@@ -87,9 +100,9 @@ class CatYarnApp(BaseApp):
     def __init__(self):
         super().__init__()
         self.debug = bool(flags.get(APP, "debug_overlay", _BUILD_DEBUG))
-        self.ball = TiltBall(BALL_R, PLAY_R)
-        self.ball.x = 30.0
+        self.ball = RimBall(BALL_R, BALL_TRACK_R)
         self.battery = BatteryMonitor()
+        self.yarn_path = (_APP_ROOT or "/apps/cat_yarn") + "/assets/" + _YARN
 
         n = flags.get(APP, "max_cats", 2)
         n = 1 if n < 1 else (3 if n > 3 else n)
@@ -97,8 +110,7 @@ class CatYarnApp(BaseApp):
         self.cats = []
         self.sprites = []
         for i in range(n):
-            angle = 2.4 + i * 2.1
-            cat = Cat(60.0 * math.cos(angle), 60.0 * math.sin(angle), play_radius=CAT_PLAY_R)
+            cat = Cat(HALF_PI + (i + 1) * 2.1, track_radius=CAT_TRACK_R)
             self.cats.append(cat)
             self.sprites.append(Sprite(anims, "idle"))
 
@@ -137,15 +149,28 @@ class CatYarnApp(BaseApp):
         self.ball.step(acc[1], acc[0], dt)
 
         if self._nudge and self.inputs.pressed("nudge"):
-            self.ball.vx += 90.0 * math.cos(self.ball.theta)
-            self.ball.vy += 90.0 * math.sin(self.ball.theta)
+            self.ball.v += 90.0 if self.ball.v >= 0.0 else -90.0
+
+        perched = None
+        for i, cat in enumerate(self.cats):
+            if cat.state == PERCH:
+                perched = i
+                break
 
         active = self.ball.speed() > 2.0
-        for cat, sprite in zip(self.cats, self.sprites):
-            cat.update(delta, self.ball)
+        for i, (cat, sprite) in enumerate(zip(self.cats, self.sprites)):
+            cat.update(
+                delta,
+                self.ball,
+                gx=acc[1],
+                gy=acc[0],
+                can_perch=(perched is None or perched == i),
+            )
+            if cat.state == PERCH and perched is None:
+                perched = i  # claimed this frame — lock the others out
             sprite.set_anim(cat.anim())
             sprite.update(delta)
-            if cat.state in (1, 2):  # CHASE or FRIGHT
+            if cat.state in (CHASE, FRIGHT, JUMP):
                 active = True
 
         if active or self.battery.charging:
@@ -166,17 +191,18 @@ class CatYarnApp(BaseApp):
         if not self._prewarmed:
             # Decode every sprite frame once, under the background fill,
             # so there's no mid-chase stutter on first use.
-            for sprite in self.sprites[:1]:
-                for path in sprite.all_paths():
-                    ctx.image_smoothing = 0
-                    ctx.image(path, -12, -12, CAT_SIZE, CAT_SIZE)
+            ctx.image_smoothing = 0
+            for path in self.sprites[0].all_paths():
+                ctx.image(path, -12, -12, 24, 24)
+            ctx.image(self.yarn_path, -12, -12, 24, 24)
             self._prewarmed = True
 
         bg = th["background"]
         ctx.rgb(bg[0], bg[1], bg[2]).rectangle(-120, -120, 240, 240).fill()
 
         self._draw_floor(ctx, th)
-        self._draw_ball(ctx, th)
+        if not any(cat.state == PERCH for cat in self.cats):
+            self._draw_ball(ctx)
         for cat, sprite in zip(self.cats, self.sprites):
             self._draw_cat(ctx, th, cat, sprite)
 
@@ -197,48 +223,36 @@ class CatYarnApp(BaseApp):
         ctx.arc(0, 0, RING_R, 0, 2 * math.pi, 0).stroke()
         ctx.restore()
 
-    def _draw_ball(self, ctx, th):
-        acc_color = th["accent"]
-        dark = (acc_color[0] * 0.55, acc_color[1] * 0.55, acc_color[2] * 0.55)
+    def _draw_ball(self, ctx):
+        half = YARN_SIZE / 2
         ctx.save()
         ctx.translate(self.ball.x, self.ball.y)
         ctx.rotate(self.ball.theta)
-        ctx.begin_path()
-        ctx.rgb(acc_color[0], acc_color[1], acc_color[2])
-        ctx.arc(0, 0, BALL_R, 0, 2 * math.pi, 0).fill()
-        # Yarn strands: three chords that visibly roll with the ball.
-        ctx.rgb(dark[0], dark[1], dark[2])
-        ctx.line_width = 1.5
-        for i in range(3):
-            a = i * math.pi / 3.0
-            ctx.begin_path()
-            ctx.arc(0, 0, BALL_R - 2.5, a, a + math.pi * 0.8, 0).stroke()
-        # Loose end trailing out of the ball.
-        ctx.begin_path()
-        ctx.move_to(BALL_R - 2, 2)
-        ctx.line_to(BALL_R + 5, 5)
-        ctx.stroke()
+        ctx.image_smoothing = 0
+        ctx.image(self.yarn_path, -half, -half, YARN_SIZE, YARN_SIZE)
         ctx.restore()
 
     def _draw_cat(self, ctx, th, cat, sprite):
+        ctx.save()
+        if cat.state == PERCH:
+            # One combined cat-on-ball sprite, feet-outward at the ball's spot.
+            ctx.translate(self.ball.x, self.ball.y)
+            ctx.rotate(self.ball.phi - HALF_PI)
+            sprite.draw(ctx, PERCH_OFF[0], PERCH_OFF[1], PERCH_SIZE)
+            ctx.restore()
+            return
+        ctx.translate(cat.x, cat.y)
+        ctx.rotate(cat.phi - HALF_PI)  # feet toward the rim floor
         sx, sy = cat.squash()
-        sprite.draw(
-            ctx,
-            cat.x,
-            cat.y + cat.hop_offset(),
-            CAT_SIZE,
-            flip_x=cat.facing_left,
-            sx=sx,
-            sy=sy,
-        )
+        hop = cat.hop_offset()
+        sprite.draw(ctx, 0, hop, CAT_SIZE, flip_x=cat.facing_left, sx=sx, sy=sy)
         if cat.show_alert():
             txt = th["text"]
-            ctx.save()
             ctx.rgb(txt[0], txt[1], txt[2])
-            top = cat.y + cat.hop_offset() - CAT_SIZE
-            ctx.rectangle(cat.x - 1, top, 2, 6).fill()
-            ctx.rectangle(cat.x - 1, top + 8, 2, 2).fill()
-            ctx.restore()
+            top = hop - CAT_SIZE / 2 - 6
+            ctx.rectangle(-1, top, 2, 6).fill()
+            ctx.rectangle(-1, top + 8, 2, 2).fill()
+        ctx.restore()
 
 
 CatYarnApp.ACTIONS = {"nudge": ["CONFIRM"]}

@@ -17,9 +17,9 @@ fix:
 test:
     uv run pytest -q
 
-# Regenerate the cat sprite PNGs (deterministic)
-assets skin="default":
-    uv run python tools/gen_cat_sprites.py --skin {{skin}}
+# Rebuild sprite frames from the sheet + generated yarn (deterministic)
+assets:
+    uv run python tools/gen_cat_sprites.py
 
 # Vendor shared libs into an app folder
 vendor app:
