@@ -1,4 +1,4 @@
-# spaceagon-mono dev entry points. Requires: uv (https://docs.astral.sh/uv/), just.
+# bat-cat dev entry points. Requires: uv (https://docs.astral.sh/uv/), just.
 
 default:
     @just --list

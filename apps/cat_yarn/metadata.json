@@ -2,6 +2,6 @@
   "name": "bat-cat",
   "path": "apps.cat_yarn.app",
   "callable": "CatYarnApp",
-  "category": "unknown",
+  "category": "Badge",
   "hidden": false
 }

@@ -1,12 +1,14 @@
-# spaceagon-mono
+# bat-cat
 
-A monorepo of apps for the **EMF Camp Spaceagon badge** (the 2026 front-board upgrade of
-the hexagonal Tildagon badge), plus shared libraries — notably a generic input-abstraction
-layer for assigning functionality to buttons/joystick/touch and composing apps from reusable
-parts.
+A monorepo for the **EMF Camp Spaceagon badge** (the 2026 front-board upgrade of the
+hexagonal Tildagon badge), plus shared libraries — notably a generic input-abstraction
+layer for assigning functionality to buttons/joystick/touch and composing apps from
+reusable parts. It ships one app, **bat-cat** (dev folder `apps/cat_yarn/`), and **this
+repo is itself the app's store repo** — releases here are what the Tildagon app store
+ingests (see [Publishing](#publishing-to-the-tildagon-app-store)).
 
-> **Status: scaffold + example app built.** This repo is intended to be used as a
-> GitHub **template repository** ("Use this template" → your own badge-app monorepo).
+> **Status: scaffold + example app built.** This repo is also usable as a GitHub
+> **template repository** ("Use this template" → your own badge-app monorepo).
 
 ## Quick start
 
@@ -22,7 +24,7 @@ just deploy cat_yarn                  # sideload to a badge over USB (USB IN por
 ## Layout
 
 ```
-apps/cat_yarn/    Cat & Yarn — ambient toy: cats chase a tilt-driven yarn ball;
+apps/cat_yarn/    bat-cat — ambient toy: cats chase a tilt-driven yarn ball;
                   the screen rim is a battery-level "floor" ring. Reference app.
 libs/spmono/      shared libs, vendored into each app by tools/vendor.py:
                   engine (physics/sprites/state machines), input (action maps,

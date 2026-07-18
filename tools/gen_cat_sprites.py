@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Cat & Yarn pixel-art sprite frames (24x24 PNGs, cat 19px tall
+"""Generate the bat-cat pixel-art sprite frames (24x24 PNGs, cat 19px tall
 incl. tail). Deterministic — rerun any time; commit the output.
 
 Usage: python tools/gen_cat_sprites.py [--skin default]

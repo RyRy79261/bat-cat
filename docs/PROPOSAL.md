@@ -1,5 +1,11 @@
 # Proposal: spaceagon-mono architecture & stack
 
+> **2026-07-18 update:** the repo now lives as `RyRy79261/bat-cat` and publishes its one
+> app (store name **bat-cat**) from this repo itself — `publish.yml` maintains a
+> store-shaped `store` branch and targets releases at it, no mirror repo and no PAT.
+> Mirror repos (as proposed below) remain the pattern only for a hypothetical second app.
+> See the README's Publishing section and `docs/research/06-publishing.md`.
+
 > Status: **awaiting sign-off — no code written yet.** Everything below is grounded in the
 > research under `docs/research/` (source-verified against the firmware, docs, and app-store
 > repos as of 2026-07-18).

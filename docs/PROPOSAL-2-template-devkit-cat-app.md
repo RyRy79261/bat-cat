@@ -128,7 +128,8 @@ touch-pad chatter characteristics · multi-hour GC/heap stability.
 Per clarification: "template" means the GitHub feature only — the repo is marked as a
 template so "Use this template" spins up a new repo from it (copies files as a single
 squashed commit; does NOT copy settings/secrets/topics/history — the README documents the
-two or three one-time setup steps a fresh copy needs, e.g. the mirror-publish PAT secret).
+one-time setup steps a fresh copy needs: the `tildagon-app` topic for same-repo store
+publishing, plus a `PUBLISH_TOKEN` PAT only if mirror-repo publishing is used).
 No in-codebase scaffolding machinery. Adding an app *inside* the monorepo is just copying
 `apps/_example/` (the Cat & Yarn app doubles as the reference layout).
 
@@ -206,6 +207,7 @@ Two tiers, matching how the platform actually works:
 | Template | GitHub template repository only — no in-repo scaffolding (owner, 2026-07-18) |
 | Theming engine | Confirmed (owner) |
 | Battery ring | **Color-only** (owner) |
-| Mirror-repo publishing | **Dropped** (owner, 2026-07-18) — then **amended** (owner, 2026-07-18): a `publish.yml` workflow flattens an app to its standalone store repo on manual dispatch (first publish) and auto-releases on `main` when the manifest version is bumped. Sideload remains the dev path. |
+| Mirror-repo publishing | **Dropped** (owner, 2026-07-18) — then **amended** (owner, 2026-07-18): a `publish.yml` workflow flattens an app to its standalone store repo on manual dispatch (first publish) and auto-releases on `main` when the manifest version is bumped. Sideload remains the dev path. — **Amended again** (owner, 2026-07-18): this repo (`bat-cat`) is itself the store repo; `publish.yml` force-pushes the flattened app to a same-repo `store` branch and targets releases at it (built-in `GITHUB_TOKEN`, no PAT, first publish automatic). Mirror mode kept only for a future second app. |
+| App name / category | Store name **bat-cat**, category **Badge** (owner, 2026-07-18); dev folder stays `apps/cat_yarn/`. |
 | Cat art | Pixel-art PNG frames (default recommendation, not objected) |
 | v1 scope | Tilt ball + 1–2 cats + fright-jump + battery ring; petting/prox/multi-cat behind flags (default recommendation, not objected) |

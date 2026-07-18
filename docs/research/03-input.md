@@ -112,7 +112,7 @@ stale/zero).
 
 `imu.mag_read()` → `(x, y, z)` floats in gauss — see `04-sensors-and-peripherals.md`.
 
-## Design implications for our input layer (spaceagon-mono)
+## Design implications for our input layer (bat-cat)
 
 1. Normalize on `(event.button.name, group, parents)` — one vocabulary covers everything.
 2. Bindings should target `BUTTON_TYPES` by default (portable), with opt-in

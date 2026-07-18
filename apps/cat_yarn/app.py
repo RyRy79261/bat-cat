@@ -1,4 +1,4 @@
-"""Cat & Yarn — ambient toy for the EMF Spaceagon/Tildagon badge.
+"""bat-cat — ambient toy for the EMF Spaceagon/Tildagon badge.
 
 A ball of yarn rolls with real gravity (accelerometer); cats chase it and
 startle-jump when it reverses past them. The screen's rim is the floor: a thin

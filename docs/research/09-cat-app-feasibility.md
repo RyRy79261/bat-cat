@@ -1,5 +1,7 @@
 # Research: Cat & Yarn app + template/dev-kit feasibility
 
+> The app described here ships in the store as **bat-cat** (dev folder `apps/cat_yarn/`).
+
 > Snapshot 2026-07-18. Three research passes (graphics/sprites, IMU physics + ambient
 > viability, CI/template/theming/flags), all verified against firmware source
 > (`badge-2024-software` @ v2.1.1), the app-store backend, and ~10 community app repos.
