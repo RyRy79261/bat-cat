@@ -1,6 +1,6 @@
 [app]
 name = "bat-cat"
-category = "Apps"
+category = "Badge"
 
 [publish]
 # Mono-internal: target repo for the store-publish workflow (stripped from the

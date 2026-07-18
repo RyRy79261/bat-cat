@@ -84,25 +84,29 @@ ship fine and are fully extracted (vendored libraries, assets, even a server + t
 see `area/racecondition`). So each *published* artifact is "one app at repo root + anything
 else", not "many apps".
 
-### Our monorepo strategy (the standard workaround)
+### Our strategy: this repo IS the store repo (via a `store` branch)
 
-Keep `spaceagon-mono` as the source of truth; **publish via per-app mirror repos**:
+The store's constraints bind the **release tarball**, not the default branch: it ingests
+the latest release, and a release can target any branch. So `bat-cat` publishes itself —
+`main` stays a monorepo, and `publish.yml` maintains a store-shaped `store` branch:
 
 ```
-spaceagon-mono (this repo, private-ish, never published directly)
-  apps/<app>/           app.py, tildagon.toml, vendored shared libs
-  libs/<lib>/           shared code, vendored INTO each app at release time
+bat-cat (this repo — store identity RyRy79261/bat-cat, store name "bat-cat")
+  main:  apps/cat_yarn/   app.py, tildagon.toml (source of truth)
+         libs/spmono/     shared code, vendored INTO the app at release time
         │
-        ▼  CI or a release script: copy/subtree-split apps/<app>/ (with libs baked in)
-mirror repos: you/<app>  (root app.py + tildagon.toml, `tildagon-app` topic, tagged release)
+        ▼  publish.yml: flatten (vendor libs, DEBUG=False, strip dev files)
+  store branch: root app.py + tildagon.toml   (force-pushed, generated)
         │
-        ▼  store scans within ~15 min
-apps.badge.emfcamp.org → badge App Store client
+        ▼  release v<version> --target store  (built-in GITHUB_TOKEN; no PAT)
+apps.badge.emfcamp.org → badge App Store client  (topic `tildagon-app` set by hand once)
 ```
 
-No community project was found doing exactly this pipeline (orgs with many apps just keep
-one repo per app), so ours would be novel-but-mechanically-sound. Sideloading has **no**
-layout constraints — the monorepo works as-is for development and manual distribution.
+Because only the **latest release** per repo is ingested, this repo can publish exactly
+one app. A second app would need a **mirror repo** (the classic monorepo workaround:
+copy the flattened app to its own repo + topic + release) — `publish.yml` retains that
+mode behind a `PUBLISH_TOKEN` PAT. Sideloading has **no** layout constraints — the
+monorepo works as-is for development and manual distribution.
 
 ## Install / size / shared code realities
 
