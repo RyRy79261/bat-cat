@@ -1,13 +1,22 @@
 """Cat behavior: pure logic, no firmware imports (unit-testable on CPython).
 
-State machine per cat: IDLE <-> CHASE -> FRIGHT -> CHASE, plus SLEEP after the
-ball has been still for a while.
+The screen's rim is the floor. Cats, like the ball, live ON the rim: each cat
+is a bead on a circular track at angle phi, sliding under the tangential
+component of tilt gravity and running along the track after the ball. Nothing
+ever leaves the floor, and sprites are drawn feet-outward at their track
+angle, so a cat can never end up on its head.
 
-The fright rule (per spec): if the ball changes direction and its new path
-would take it past the cat, the cat startles and jumps. Implemented as:
-within fright_radius, the ball's velocity flips by more than 90 degrees
-(dot(v_new, v_old) < 0) at real speed, and the new trajectory's closest
-approach to the cat is under pass_dist.
+State machine per cat:
+
+    IDLE <-> CHASE -> JUMP   (ball rolls at the cat -> it leaps over the ball)
+                   -> FRIGHT (ball reverses past the cat -> startle hop)
+    IDLE/CHASE     -> PERCH  (cat reaches a still ball -> sits, then lies, on it)
+    IDLE           -> SLEEP  (ball still for a while)
+
+Cats share the ball's tilt physics — the same gravity scale, friction, and
+speed cap as spmono.engine.physics.RimBall — so they fall exactly like the
+ball does. Their self-powered chase (run acceleration) is deliberately weaker,
+so a cat runs slower than the ball rolls.
 """
 
 import math
@@ -16,59 +25,86 @@ IDLE = 0
 CHASE = 1
 FRIGHT = 2
 SLEEP = 3
+JUMP = 4
+PERCH = 5
+
+TWO_PI = 2.0 * math.pi
 
 HOP_MS = 450
 HOP_HEIGHT = 10.0
+JUMP_MS = 520
+JUMP_HEIGHT = 16.0
 FRIGHT_COOLDOWN_MS = 800
 SLEEP_AFTER_MS = 20000
 BALL_STILL_SPEED = 5.0
 BALL_WAKE_SPEED = 15.0
 MIN_FLIP_SPEED = 25.0
+JUMP_MIN_SPEED = 45.0
+PERCH_ON_DIST = 10.0
+PERCH_OFF_SPEED = 40.0
+PERCH_LIE_AFTER_MS = 6000
+
+# Tilt physics — MUST match spmono.engine.physics.RimBall's defaults so the
+# cats fall under the same gravity as the ball. (Duplicated, not imported:
+# this module stays import-free so it unit-tests standalone on CPython.)
+GRAV_SCALE = 40.0
+GRAV_DEADZONE = 0.8
+FRICTION = 1.1
+MAX_SPEED = 340.0
+
+
+def arc_delta(from_phi, to_phi):
+    """Shortest signed angular difference to get from from_phi to to_phi."""
+    return (to_phi - from_phi + math.pi) % TWO_PI - math.pi
 
 
 class Cat:
     def __init__(
         self,
-        x,
-        y,
-        speed=60.0,
-        accel=150.0,
+        phi,
+        track_radius=95.0,
+        accel=120.0,
         standoff=20.0,
-        fright_radius=48.0,
-        pass_dist=28.0,
-        play_radius=95.0,
+        fright_dist=48.0,
     ):
-        self.x = x
-        self.y = y
-        self.vx = 0.0
-        self.vy = 0.0
-        self.max_speed = speed
+        self.phi = phi % TWO_PI
+        self.track_r = track_radius
+        self.v = 0.0  # linear speed along the track, px/s (positive = +phi)
         self.accel = accel
         self.standoff = standoff
-        self.fright_radius = fright_radius
-        self.pass_dist = pass_dist
-        self.play_radius = play_radius
+        self.fright_dist = fright_dist
         self.state = IDLE
         self.state_ms = 0
         self.facing_left = False
-        self._prev_bvx = 0.0
-        self._prev_bvy = 0.0
+        self._prev_bv = 0.0
         self._cooldown_ms = 0
         self._still_ms = 0
 
     # -- queries used by the renderer ------------------------------------
 
+    @property
+    def x(self):
+        return self.track_r * math.cos(self.phi)
+
+    @property
+    def y(self):
+        return self.track_r * math.sin(self.phi)
+
     def hop_offset(self):
-        """Vertical fright-hop offset in px (negative = up)."""
-        if self.state != FRIGHT:
+        """Hop offset in px along the local up (negative = off the floor)."""
+        if self.state == FRIGHT:
+            span, height = HOP_MS, HOP_HEIGHT
+        elif self.state == JUMP:
+            span, height = JUMP_MS, JUMP_HEIGHT
+        else:
             return 0.0
-        t = self.state_ms / HOP_MS
+        t = self.state_ms / span
         if t > 1.0:
             t = 1.0
-        return -HOP_HEIGHT * math.sin(math.pi * t)
+        return -height * math.sin(math.pi * t)
 
     def squash(self):
-        """(sx, sy) landing squash during the last part of the hop."""
+        """(sx, sy) landing squash during the last part of the fright hop."""
         if self.state == FRIGHT and self.state_ms > HOP_MS - 100:
             return (1.1, 0.9)
         return (1.0, 1.0)
@@ -76,6 +112,10 @@ class Cat:
     def anim(self):
         if self.state == SLEEP:
             return "sleep"
+        if self.state == PERCH:
+            return "perch_sit" if self.state_ms < PERCH_LIE_AFTER_MS else "perch_lie"
+        if self.state == JUMP:
+            return "jump_up" if self.state_ms < JUMP_MS / 2 else "jump_down"
         if self.state == FRIGHT:
             return "fright_up" if self.state_ms < HOP_MS / 2 else "fright_down"
         if self.state == CHASE:
@@ -87,96 +127,115 @@ class Cat:
 
     # -- update ----------------------------------------------------------
 
-    def update(self, delta_ms, ball):
+    def update(self, delta_ms, ball, gx=0.0, gy=0.0, can_perch=False):
+        """Advance the cat.
+
+        ball: exposes phi (track angle) and v (linear track speed, px/s) —
+        RimBall, or any stub with those two attributes.
+        gx, gy: screen-space tilt acceleration (m/s^2) — the same values the
+        app feeds RimBall.step, so cat and ball share one gravity.
+        can_perch: whether this cat may (or already does) sit on the ball —
+        the app grants it to one cat at a time.
+        """
         dt = delta_ms / 1000.0
         self.state_ms += delta_ms
         if self._cooldown_ms > 0:
             self._cooldown_ms -= delta_ms
 
-        bspeed = math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy)
+        bspeed = abs(ball.v)
         if bspeed < BALL_STILL_SPEED:
             self._still_ms += delta_ms
         else:
             self._still_ms = 0
 
-        if self.state == FRIGHT:
-            if self.state_ms >= HOP_MS:
+        # Signed arc from cat to ball, in px along the track.
+        gap = arc_delta(self.phi, ball.phi) * self.track_r
+        dist = abs(gap)
+
+        if self.state == PERCH:
+            self.phi = ball.phi
+            if bspeed > PERCH_OFF_SPEED or not can_perch:
+                self._set(FRIGHT)  # knocked off — startle hop
+                self.v = 0.0
+                self._cooldown_ms = FRIGHT_COOLDOWN_MS
+        elif self.state == FRIGHT or self.state == JUMP:
+            span = HOP_MS if self.state == FRIGHT else JUMP_MS
+            if self.state_ms >= span:
                 self._set(CHASE)
                 self._cooldown_ms = FRIGHT_COOLDOWN_MS
-        elif self._fright_triggered(ball, bspeed):
+        elif self._fright_triggered(ball, bspeed, gap):
             self._set(FRIGHT)
-            self.vx = 0.0
-            self.vy = 0.0
+            self.v = 0.0
+        elif self._jump_triggered(ball, bspeed, gap):
+            self._set(JUMP)
+            self.v = 0.0
         elif self.state == SLEEP:
             if bspeed > BALL_WAKE_SPEED:
                 self._set(IDLE)
+        elif can_perch and bspeed < BALL_STILL_SPEED and dist < PERCH_ON_DIST:
+            self._set(PERCH)
+            self.v = 0.0
+        elif self._still_ms > SLEEP_AFTER_MS and dist <= self.standoff + 6.0:
+            self._set(SLEEP)
+        elif dist > self.standoff + 6.0 or (can_perch and bspeed < BALL_STILL_SPEED):
+            # Chase — all the way onto the ball when a perch is on offer.
+            self._set(CHASE)
+            self.v += (self.accel if gap > 0.0 else -self.accel) * dt
         else:
-            dx = ball.x - self.x
-            dy = ball.y - self.y
-            dist = math.sqrt(dx * dx + dy * dy)
-            if self._still_ms > SLEEP_AFTER_MS:
-                self._set(SLEEP)
-                self.vx = 0.0
-                self.vy = 0.0
-            elif dist > self.standoff + 6.0:
-                self._set(CHASE)
-                self._seek(dx, dy, dist, dt)
-            else:
-                self._set(IDLE)
-                self.vx *= 0.7
-                self.vy *= 0.7
+            self._set(IDLE)
 
-        if self.state == CHASE or self.state == IDLE:
-            self.x += self.vx * dt
-            self.y += self.vy * dt
-            d = math.sqrt(self.x * self.x + self.y * self.y)
-            if d > self.play_radius and d > 0.0:
-                self.x *= self.play_radius / d
-                self.y *= self.play_radius / d
-            if abs(self.vx) > 2.0:
-                self.facing_left = self.vx < 0.0
+        if self.state in (IDLE, CHASE, SLEEP):
+            self._step_physics(gx, gy, dt)
+            # Sprite-local right on screen is the -phi track direction, so a
+            # cat moving with v > 0 shows its left side.
+            if abs(self.v) > 2.0:
+                self.facing_left = self.v > 0.0
 
-        self._prev_bvx = ball.vx
-        self._prev_bvy = ball.vy
+        self._prev_bv = ball.v
 
     def _set(self, state):
         if state != self.state:
             self.state = state
             self.state_ms = 0
 
-    def _seek(self, dx, dy, dist, dt):
-        if dist <= 0.0:
-            return
-        ux = dx / dist
-        uy = dy / dist
-        self.vx += ux * self.accel * dt
-        self.vy += uy * self.accel * dt
-        spd = math.sqrt(self.vx * self.vx + self.vy * self.vy)
-        if spd > self.max_speed:
-            k = self.max_speed / spd
-            self.vx *= k
-            self.vy *= k
+    def _step_physics(self, gx, gy, dt):
+        """Tilt gravity + friction along the rim — the ball's physics, shared."""
+        if math.sqrt(gx * gx + gy * gy) < GRAV_DEADZONE:
+            a_t = 0.0
+        else:
+            a_t = gx * -math.sin(self.phi) + gy * math.cos(self.phi)
+        self.v += a_t * GRAV_SCALE * dt
 
-    def _fright_triggered(self, ball, bspeed):
-        if self.state == FRIGHT or self._cooldown_ms > 0:
+        decay = 1.0 - FRICTION * dt
+        if self.state != CHASE:
+            decay -= 3.0 * dt  # no legs pushing — settle sooner
+        if decay < 0.0:
+            decay = 0.0
+        self.v *= decay
+
+        if self.v > MAX_SPEED:
+            self.v = MAX_SPEED
+        elif self.v < -MAX_SPEED:
+            self.v = -MAX_SPEED
+
+        self.phi = (self.phi + self.v / self.track_r * dt) % TWO_PI
+
+    def _fright_triggered(self, ball, bspeed, gap):
+        """Ball reversed direction and its new path passes the cat."""
+        if self._cooldown_ms > 0:
             return False
-        prev_speed = math.sqrt(self._prev_bvx * self._prev_bvx + self._prev_bvy * self._prev_bvy)
-        if bspeed < MIN_FLIP_SPEED or prev_speed < MIN_FLIP_SPEED:
+        if bspeed < MIN_FLIP_SPEED or abs(self._prev_bv) < MIN_FLIP_SPEED:
             return False
-        # Direction flip of more than 90 degrees?
-        if ball.vx * self._prev_bvx + ball.vy * self._prev_bvy >= 0.0:
+        if ball.v * self._prev_bv >= 0.0:
+            return False  # no reversal
+        if abs(gap) > self.fright_dist:
             return False
-        rx = self.x - ball.x
-        ry = self.y - ball.y
-        dist = math.sqrt(rx * rx + ry * ry)
-        if dist > self.fright_radius:
+        # Heading toward the cat? (gap is measured cat->ball, so the ball
+        # closes it by moving against the gap's sign.)
+        return ball.v * gap < 0.0
+
+    def _jump_triggered(self, ball, bspeed, gap):
+        """Ball simply rolling at the cat fast enough to pass it."""
+        if self._cooldown_ms > 0 or bspeed < JUMP_MIN_SPEED:
             return False
-        # Closest approach of the new trajectory to the cat.
-        ux = ball.vx / bspeed
-        uy = ball.vy / bspeed
-        t = rx * ux + ry * uy
-        if t <= 0.0:
-            return False  # heading away — it won't pass us
-        cx = rx - t * ux
-        cy = ry - t * uy
-        return math.sqrt(cx * cx + cy * cy) < self.pass_dist
+        return abs(gap) <= self.fright_dist and ball.v * gap < 0.0

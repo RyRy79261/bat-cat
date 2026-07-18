@@ -24,8 +24,12 @@ just deploy cat_yarn                  # sideload to a badge over USB (USB IN por
 ## Layout
 
 ```
-apps/cat_yarn/    bat-cat — ambient toy: cats chase a tilt-driven yarn ball;
-                  the screen rim is a battery-level "floor" ring. Reference app.
+apps/cat_yarn/    bat-cat — ambient toy: the screen rim is the floor (a
+                  battery-level ring), and a yarn ball plus the pixel cats
+                  chasing it slide around it under real gravity. Cats leap
+                  over a ball rolled at them, startle when it reverses, and
+                  sit (then lie) on it when they catch it still. Sprites are
+                  sliced from tools/assets/cat_sheet.png. Reference app.
 libs/spmono/      shared libs, vendored into each app by tools/vendor.py:
                   engine (physics/sprites/state machines), input (action maps,
                   edge/long-press detection), theme, flags, sensors, ui (BaseApp)
