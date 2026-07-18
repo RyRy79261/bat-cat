@@ -18,3 +18,4 @@ def _load(name, path):
 
 
 _load("cat_yarn_cats", str(ROOT / "apps" / "cat_yarn" / "cats.py"))
+_load("cat_yarn_planets", str(ROOT / "apps" / "cat_yarn" / "planets.py"))

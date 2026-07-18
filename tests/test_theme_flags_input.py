@@ -55,6 +55,19 @@ def test_any_bound_key_matches():
     assert m.held("both")
 
 
+def test_touch_pad_bindings_edge_detect():
+    # Touch pads bind by their own key names (no BUTTON_TYPES parents) and
+    # send one Down per contact — pressed() still edge-detects cleanly.
+    state = {}
+    m = InputMap({"saturn": ["TOUCH03"]})
+    m.attach_provider(lambda key: state.get(key, False))
+    state["TOUCH03"] = True
+    m.update(50)
+    assert m.pressed("saturn")
+    m.update(50)
+    assert not m.pressed("saturn") and m.held("saturn")
+
+
 def test_long_press_fires_once():
     state = {"CONFIRM": True}
     m = make_map(state)

@@ -17,9 +17,10 @@ fix:
 test:
     uv run pytest -q
 
-# Rebuild sprite frames from the sheet + generated yarn (deterministic)
+# Rebuild sprite frames from the sheet + generated yarn + planets (deterministic)
 assets:
     uv run python tools/gen_cat_sprites.py
+    uv run python tools/gen_planet_sprites.py
 
 # Vendor shared libs into an app folder
 vendor app:
