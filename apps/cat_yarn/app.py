@@ -10,6 +10,7 @@ the app's menu name in /autoexec.bat to boot straight into it.
 """
 
 import math
+import random
 
 
 def _find_root():
@@ -34,6 +35,7 @@ def _find_root():
 _APP_ROOT = _find_root()
 
 from .cats import CHASE, FRIGHT, JUMP, PERCH, Cat, separate
+from .planets import PADS, SIZES, PlanetField
 from .spmono import flags, theme
 from .spmono.engine.physics import RimBall
 from .spmono.engine.sprite import Sprite
@@ -75,6 +77,12 @@ CAT_TRACK_R = FLOOR_R - CAT_FEET
 
 IDLE_REDRAW_MS = 500
 
+
+def _rand():
+    # random.random() is not guaranteed on every MicroPython port; getrandbits is.
+    return random.getrandbits(16) / 65536.0
+
+
 _FRAMES = {
     "idle": [(f"cat/default/idle{i}.png", 400) for i in range(4)],
     "run": [(f"cat/default/run{i}.png", 80) for i in range(8)],
@@ -104,6 +112,8 @@ class CatYarnApp(BaseApp):
         self.ball = RimBall(BALL_R, BALL_TRACK_R)
         self.battery = BatteryMonitor()
         self.yarn_path = (_APP_ROOT or "/apps/cat_yarn") + "/assets/" + _YARN
+        self.planet_root = (_APP_ROOT or "/apps/cat_yarn") + "/assets/planets/"
+        self.planets = PlanetField()
 
         n = flags.get(APP, "max_cats", 2)
         n = 1 if n < 1 else (3 if n > 3 else n)
@@ -152,13 +162,18 @@ class CatYarnApp(BaseApp):
         if self._nudge and self.inputs.pressed("nudge"):
             self.ball.v += 90.0 if self.ball.v >= 0.0 else -90.0
 
+        for pad, name in PADS.items():
+            if self.inputs.pressed(f"planet_{pad}"):
+                self.planets.spawn(name, _rand, FLOOR_R)
+        planets_active = self.planets.update(delta)
+
         perched = None
         for i, cat in enumerate(self.cats):
             if cat.state == PERCH:
                 perched = i
                 break
 
-        active = self.ball.speed() > 2.0
+        active = planets_active or self.ball.speed() > 2.0
         for i, (cat, sprite) in enumerate(zip(self.cats, self.sprites)):
             cat.update(
                 delta,
@@ -203,6 +218,7 @@ class CatYarnApp(BaseApp):
         ctx.rgb(bg[0], bg[1], bg[2]).rectangle(-120, -120, 240, 240).fill()
 
         self._draw_floor(ctx, th)
+        self._draw_planets(ctx)
         if not any(cat.state == PERCH for cat in self.cats):
             self._draw_ball(ctx)
         for cat, sprite in zip(self.cats, self.sprites):
@@ -224,6 +240,22 @@ class CatYarnApp(BaseApp):
         ctx.rgb(color[0], color[1], color[2])
         ctx.arc(0, 0, RING_R, 0, 2 * math.pi, 0).stroke()
         ctx.restore()
+
+    def _draw_planets(self, ctx):
+        # Planets appear behind the yarn and cats — sky, not floor.
+        for flash in self.planets.flashes:
+            a = flash.alpha()
+            if a <= 0.0:
+                continue
+            size = SIZES[flash.name]
+            half = size / 2
+            ctx.save()
+            ctx.global_alpha = a
+            ctx.image_smoothing = 0
+            path = self.planet_root + flash.name + ".png"
+            ctx.image(path, flash.x - half, flash.y - half, size, size)
+            ctx.restore()
+            ctx.global_alpha = 1.0  # belt and braces: not all ports restore it
 
     def _draw_ball(self, ctx):
         half = YARN_SIZE / 2
@@ -258,5 +290,7 @@ class CatYarnApp(BaseApp):
 
 
 CatYarnApp.ACTIONS = {"nudge": ["CONFIRM"]}
+for _pad in PADS:
+    CatYarnApp.ACTIONS[f"planet_{_pad}"] = [f"TOUCH{_pad:02d}"]
 
 __app_export__ = CatYarnApp

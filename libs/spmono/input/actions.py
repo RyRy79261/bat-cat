@@ -3,6 +3,9 @@
 Bindings target BUTTON_TYPES keys ("UP", "DOWN", "LEFT", "RIGHT", "CONFIRM",
 "CANCEL") by default, which covers 2024 buttons, 2026 buttons A-F, AND the
 Spaceagon joystick for free (the firmware parents them all onto BUTTON_TYPES).
+Spaceagon-only inputs bind by their own key names: touch ring pads "TOUCH01"
+.. "TOUCH12" (clock layout) and proximity sensors "LEFTPROX"/"RIGHTPROX".
+On a 2024 board those keys resolve to nothing and simply never fire.
 
 The firmware auto-repeats ButtonDownEvent every ~200 ms while held, so edge
 detection (pressed/released) is done here from held-state transitions, never
@@ -37,10 +40,22 @@ class InputMap:
         """Wire to the firmware Buttons helper (badge / simulator)."""
         from events.input import BUTTON_TYPES, Buttons
 
+        lookup = dict(BUTTON_TYPES)
+        try:
+            # TOUCH/PROX buttons have no BUTTON_TYPES parents — resolve them
+            # by their own names. Import guarded for pre-2026 firmware.
+            from frontboards.twentysix import PROX, TOUCH
+
+            lookup.update(TOUCH)
+            lookup.update(PROX)
+        except ImportError:
+            pass
+
         self._buttons = Buttons(app)
 
         def provider(key):
-            return bool(self._buttons.get(BUTTON_TYPES[key]))
+            button = lookup.get(key)
+            return button is not None and bool(self._buttons.get(button))
 
         self._provider = provider
 
