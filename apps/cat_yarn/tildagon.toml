@@ -1,15 +1,16 @@
 [app]
-name = "Cat & Yarn"
+name = "bat-cat"
 category = "Apps"
 
 [publish]
 # Mono-internal: target repo for the store-publish workflow (stripped from the
-# published copy). The repo must exist; PUBLISH_TOKEN secret needs write on it.
-repo = "RyRy79261/spaceagon-cat-yarn"
+# published copy). This is the monorepo itself, so the workflow publishes via
+# this repo's `store` branch using the built-in GITHUB_TOKEN — no PAT needed.
+repo = "RyRy79261/bat-cat"
 
 [metadata]
 author = "RyRy79261"
 license = "MIT"
-url = "https://github.com/RyRy79261/spaceagon-mono"
+url = "https://github.com/RyRy79261/bat-cat"
 description = "Ambient toy: cats chase a yarn ball that rolls with tilt. The rim shows battery."
 version = "1.00.00"

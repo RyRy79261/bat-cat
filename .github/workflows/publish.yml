@@ -1,21 +1,27 @@
 name: Publish apps to the Tildagon store
 
-# Publishes apps to their standalone GitHub repos (the store requires one repo
-# per app, discovered via the `tildagon-app` topic + a GitHub Release).
+# Publishes apps as store-shaped trees (root app.py + tildagon.toml). The store
+# discovers repos via the `tildagon-app` topic and ingests each repo's latest
+# GitHub Release — one app per repo.
 #
-# First publish (manual): Actions -> "Publish apps" -> Run workflow, app name.
-# Updates (automatic):    merge to main with a bumped version in the app's
-#                         tildagon.toml -> new release in its repo. Apps whose
-#                         target repo doesn't exist yet are never auto-published.
+# Same-repo mode (this repo IS the store repo): the flattened app is
+# force-pushed to this repo's `store` branch and the release targets that
+# branch, so main stays a monorepo. Uses the built-in GITHUB_TOKEN — no PAT —
+# and publishes automatically on merge to main (including the first release).
+# One-time setup: add the `tildagon-app` topic to this repo by hand
+# (repo Settings, or the topic step below with an admin-scoped PUBLISH_TOKEN).
 #
-# One-time setup:
+# Mirror mode (target repo is a different repo, for any future second app —
+# the store allows only one app per repo):
 #   1. Create the empty target repo (default: <owner>/spaceagon-<app-dashes>,
 #      or set [publish] repo = "owner/name" in the app's tildagon.toml).
 #   2. Add a PUBLISH_TOKEN secret: fine-grained PAT with Contents: read/write
-#      on the target repos (plus Administration: write if you want the topic
-#      step to work — otherwise add the `tildagon-app` topic by hand once).
-#   3. The store rescans every ~10-15 min; failures show at
-#      https://apps.badge.emfcamp.org/errors/
+#      on the target repos (plus Administration: write for the topic step).
+#   3. First publish is manual: Actions -> "Publish apps" -> Run workflow.
+#      Updates are automatic once the target repo has a release.
+#
+# The store rescans every ~10-15 min; failures show at
+# https://apps.badge.emfcamp.org/errors/
 
 on:
   workflow_dispatch:
@@ -30,6 +36,9 @@ on:
     branches: [main]
     paths: ["apps/**", "libs/**"]
 
+permissions:
+  contents: write
+
 jobs:
   plan:
     runs-on: ubuntu-latest
@@ -39,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
       - id: plan
         env:
-          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           INPUT_APP: ${{ inputs.app }}
           INPUT_REPO: ${{ inputs.repo }}
@@ -59,7 +68,7 @@ jobs:
 
       - name: Refuse to re-release an existing version
         env:
-          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           if gh release view "v${{ matrix.version }}" --repo "${{ matrix.repo }}" >/dev/null 2>&1; then
             echo "::error::v${{ matrix.version }} already released in ${{ matrix.repo }} — bump version in apps/${{ matrix.app }}/tildagon.toml (keep components fixed-width, e.g. 1.00.01)"
@@ -69,22 +78,22 @@ jobs:
       - name: Build flattened store tree
         run: python tools/publish_prep.py "${{ matrix.app }}" --repo "${{ matrix.repo }}"
 
-      - name: Push to app repo
+      - name: Push store tree to ${{ matrix.repo }}@${{ matrix.branch }}
         env:
-          TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          TOKEN: ${{ secrets.PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           cd "dist/${{ matrix.app }}"
-          git init -b main
-          git config user.name "spaceagon-mono publisher"
+          git init -b "${{ matrix.branch }}"
+          git config user.name "bat-cat publisher"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Publish ${{ matrix.app }} v${{ matrix.version }} from spaceagon-mono"
-          git push --force "https://x-access-token:${TOKEN}@github.com/${{ matrix.repo }}.git" main
+          git commit -m "Publish ${{ matrix.app }} v${{ matrix.version }}"
+          git push --force "https://x-access-token:${TOKEN}@github.com/${{ matrix.repo }}.git" "HEAD:refs/heads/${{ matrix.branch }}"
 
       - name: Ensure tildagon-app topic (needs Administration write; safe to skip)
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           existing=$(gh api "repos/${{ matrix.repo }}/topics" -q '.names[]' || true)
           args=""
@@ -95,11 +104,11 @@ jobs:
 
       - name: Create release (what the store actually ingests)
         env:
-          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          GH_TOKEN: ${{ secrets.PUBLISH_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           gh release create "v${{ matrix.version }}" \
             --repo "${{ matrix.repo }}" \
-            --target main \
+            --target "${{ matrix.branch }}" \
             --title "v${{ matrix.version }}" \
             --notes "Published from ${{ github.repository }}@${{ github.sha }}"
           echo "Released ${{ matrix.repo }} v${{ matrix.version }} — the store lists it within ~15 min (errors: https://apps.badge.emfcamp.org/errors/)"

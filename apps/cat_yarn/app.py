@@ -19,7 +19,9 @@ def _find_root():
             import os
 
             for entry in os.listdir("/apps"):
-                if "cat_yarn" in entry:
+                # Sideloaded folder is cat_yarn; store installs land in
+                # /apps/<owner>_<repo>/ (repo: bat-cat).
+                if "cat_yarn" in entry or "bat-cat" in entry or "bat_cat" in entry:
                     return "/apps/" + entry
         except OSError:
             pass

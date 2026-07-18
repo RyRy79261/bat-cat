@@ -40,26 +40,33 @@ and pure-logic modules import no firmware so they test on plain CPython.
 ## Publishing to the Tildagon app store
 
 The store requires one repo per app (root `app.py` + `tildagon.toml`, the
-`tildagon-app` topic, and a GitHub Release). The **Publish apps** workflow
-handles that from this monorepo:
+`tildagon-app` topic, and a GitHub Release ingested as a whole-repo tarball).
+**This repo is itself the published repo** for its one app — it appears in the
+store as **bat-cat** (`[app] name` in `apps/cat_yarn/tildagon.toml`, identity
+`RyRy79261/bat-cat`). The **Publish apps** workflow makes that work without
+flattening the monorepo:
 
-1. **One-time per app:** create the empty target repo (default
-   `<owner>/spaceagon-<app-dashes>`, or set `[publish] repo = "owner/name"` in
-   the app's `tildagon.toml`), and add a `PUBLISH_TOKEN` repo secret — a
-   fine-grained PAT with *Contents: read/write* on the target repos (plus
-   *Administration: write* if you want the workflow to set the `tildagon-app`
-   topic; otherwise add the topic by hand once).
-2. **First publish:** Actions → *Publish apps to the Tildagon store* → Run
-   workflow → app name. It flattens the app (vendored libs, `DEBUG=False`,
-   dev `metadata.json` stripped, `[publish]` section removed, `metadata.url`
-   rewritten), force-pushes it to the target repo, ensures the topic, and
-   creates release `v<version>`. The store lists it within ~15 minutes
-   (failures: <https://apps.badge.emfcamp.org/errors/>).
-3. **Updates:** bump `version` in the app's `tildagon.toml` (keep components
-   fixed-width — `1.00.00 → 1.00.01`; the badge compares version strings
-   lexicographically) and merge to `main`. The workflow auto-releases every
-   already-published app whose version has no matching release. Apps never
-   published (no target repo / no release) are never auto-published.
+1. **One-time:** add the `tildagon-app` topic to this repo by hand
+   (Settings → topics). No secrets needed — same-repo publishing runs on the
+   built-in `GITHUB_TOKEN`.
+2. **Publish & updates (both automatic):** merge to `main` with a `version` in
+   the app's `tildagon.toml` that has no matching release. The workflow
+   flattens the app (vendored libs, `DEBUG=False`, dev `metadata.json`
+   stripped, `[publish]` section removed), force-pushes it to this repo's
+   `store` branch, and creates release `v<version>` targeting that branch —
+   so the release tarball is store-shaped while `main` stays a monorepo. The
+   store lists it within ~15 minutes
+   (failures: <https://apps.badge.emfcamp.org/errors/>). Keep version
+   components fixed-width — `1.00.00 → 1.00.01`; the badge compares version
+   strings lexicographically.
+
+The store ingests only one app per repo, so a second app would need a mirror
+repo: set `[publish] repo = "owner/name"` in its `tildagon.toml` (default
+`<owner>/spaceagon-<app-dashes>`), create that repo, add a `PUBLISH_TOKEN`
+secret (fine-grained PAT, *Contents: read/write* on the target repos, plus
+*Administration: write* for the topic step), and run the first publish
+manually: Actions → *Publish apps to the Tildagon store* → Run workflow →
+app name. After that, updates are automatic just like above.
 
 ## What is this badge?
 

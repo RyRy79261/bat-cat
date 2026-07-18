@@ -1,5 +1,5 @@
 {
-  "name": "Cat & Yarn",
+  "name": "bat-cat",
   "path": "apps.cat_yarn.app",
   "callable": "CatYarnApp",
   "category": "unknown",
