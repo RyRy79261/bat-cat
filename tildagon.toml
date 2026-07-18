@@ -1,0 +1,10 @@
+[app]
+name = "bat-cat"
+category = "Badge"
+
+[metadata]
+author = "RyRy79261"
+license = "MIT"
+url = "https://github.com/RyRy79261/bat-cat"
+description = "Ambient toy: cats chase a yarn ball around the rim floor as you tilt. The rim shows battery."
+version = "1.01.00"
