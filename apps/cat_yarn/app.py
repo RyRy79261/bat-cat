@@ -40,14 +40,13 @@ from .spmono import flags, theme
 from .spmono.engine.physics import RimBall
 from .spmono.engine.sprite import Sprite
 from .spmono.sensors.battery import BatteryMonitor
+from .spmono.sensors.motion import MotionPoller
 from .spmono.ui.baseapp import BaseApp
 
 try:
     from ._build import DEBUG as _BUILD_DEBUG
 except ImportError:
     _BUILD_DEBUG = True  # running from source = dev build
-
-import imu
 
 try:
     from system.eventbus import eventbus
@@ -75,7 +74,15 @@ PERCH_OFF = (-2, -17)  # composite offset aligning its ball with the real one
 BALL_TRACK_R = FLOOR_R - BALL_R
 CAT_TRACK_R = FLOOR_R - CAT_FEET
 
+# Power throttles (all overridable via flags). The scheduler ticks update()
+# at ~20 Hz regardless; these caps decide how often we actually touch the
+# I2C sensors and repaint the 240x240 screen within those ticks. 0 = every
+# tick (the pre-throttle behaviour, kept for A/B runs).
+IMU_MS = 100  # accelerometer poll while anything moves (10 Hz)
+IMU_IDLE_MS = 400  # accelerometer poll while settled (2.5 Hz)
+DRAW_MS = 80  # active redraw cap (~12.5 fps; matches the run anim cadence)
 IDLE_REDRAW_MS = 500
+BATTERY_MS = 1000  # PMIC poll interval (research floor: >= 1 s)
 
 
 def _rand():
@@ -110,7 +117,13 @@ class CatYarnApp(BaseApp):
         super().__init__()
         self.debug = bool(flags.get(APP, "debug_overlay", _BUILD_DEBUG))
         self.ball = RimBall(BALL_R, BALL_TRACK_R)
-        self.battery = BatteryMonitor()
+        self.battery = BatteryMonitor(interval_ms=int(flags.get(APP, "battery_ms", BATTERY_MS)))
+        self.motion = MotionPoller(
+            interval_ms=int(flags.get(APP, "imu_ms", IMU_MS)),
+            idle_interval_ms=int(flags.get(APP, "imu_idle_ms", IMU_IDLE_MS)),
+        )
+        self.draw_ms = int(flags.get(APP, "draw_ms", DRAW_MS))
+        self.idle_draw_ms = int(flags.get(APP, "idle_draw_ms", IDLE_REDRAW_MS))
         self.yarn_path = (_APP_ROOT or "/apps/cat_yarn") + "/assets/" + _YARN
         self.planet_root = (_APP_ROOT or "/apps/cat_yarn") + "/assets/planets/"
         self.planets = PlanetField()
@@ -127,9 +140,28 @@ class CatYarnApp(BaseApp):
 
         self._t = 0
         self._idle_acc = 0
+        self._draw_acc = 1 << 30  # draw the first active frame immediately
+        self._was_idle = False
         self._prewarmed = False
         self._patterns_off = False
         self._nudge = bool(flags.get(APP, "nudge", True))
+        self._probe = self._make_probe()
+
+    @staticmethod
+    def _make_probe():
+        # Simulator-only instrumentation (tools/power_probe.py). MicroPython's
+        # os has no environ, so this is always None on the badge.
+        try:
+            import os
+
+            path = os.environ.get("CATYARN_PROBE")
+        except (ImportError, AttributeError):
+            return None
+        if not path:
+            return None
+        from . import probe
+
+        return probe.Probe(path)
 
     # -- lifecycle -------------------------------------------------------
 
@@ -154,7 +186,7 @@ class CatYarnApp(BaseApp):
         self._t += delta
         self.battery.update(delta)
 
-        acc = imu.acc_read()
+        acc = self.motion.update(delta, idle=self._was_idle)
         # Verified mapping: acc[1] -> screen x, acc[0] -> screen y, no flips.
         dt = delta / 1000.0
         self.ball.step(acc[1], acc[0], dt)
@@ -190,12 +222,24 @@ class CatYarnApp(BaseApp):
                 active = True
         separate(self.cats)
 
-        if active or self.battery.charging:
+        idle = not (active or self.battery.charging)
+        self._was_idle = idle  # next tick's IMU poll rate follows this frame
+        if self._probe:
+            self._probe.tick_update(idle)
+
+        if not idle:
+            # Active: cap the repaint rate — physics and input still run at
+            # every ~50 ms tick above, only the screen updates less often.
             self._idle_acc = 0
-            return True
+            self._draw_acc += delta
+            if self._draw_acc >= self.draw_ms:
+                self._draw_acc = 0
+                return True
+            return False
         # Ambient idle: everything is settled — redraw slowly to save power.
+        self._draw_acc = 1 << 30  # leave idle instantly responsive
         self._idle_acc += delta
-        if self._idle_acc >= IDLE_REDRAW_MS:
+        if self._idle_acc >= self.idle_draw_ms:
             self._idle_acc = 0
             return True
         return False
@@ -204,6 +248,8 @@ class CatYarnApp(BaseApp):
 
     def on_draw(self, ctx):
         th = self.theme
+        if self._probe:
+            self._probe.tick_draw()
 
         if not self._prewarmed:
             # Decode every sprite frame once, under the background fill,
