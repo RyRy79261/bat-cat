@@ -104,6 +104,7 @@ app name. After that, updates are automatic just like above.
 | [docs/research/06-publishing.md](docs/research/06-publishing.md) | App store mechanics + the monorepo verdict |
 | [docs/research/07-ecosystem.md](docs/research/07-ecosystem.md) | Repos to learn from, community channels |
 | [docs/research/08-verification-log.md](docs/research/08-verification-log.md) | How claims were adversarially verified + tooling recency audit |
+| [docs/research/10-power-probe.md](docs/research/10-power-probe.md) | Ambient power draw: IMU/repaint throttling A/B, measured in the simulator |
 
 ## Upstream links
 
